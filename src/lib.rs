@@ -18,40 +18,82 @@ extension_sql!(
     CREATE SCHEMA IF NOT EXISTS pg_perishable;
 
     CREATE TABLE pg_perishable.policies (
-        id              SERIAL PRIMARY KEY,
-        table_name      regclass    NOT NULL,   -- validated: must exist
-        column_name     name        NOT NULL,   -- the timestamp column
-        ttl_seconds     bigint      NOT NULL CHECK (ttl_seconds > 0),
-        soft_delete     boolean     NOT NULL DEFAULT false,
-        enabled         boolean     NOT NULL DEFAULT true,
-        created_at      timestamptz NOT NULL DEFAULT now(),
+        id                          SERIAL PRIMARY KEY,
+        table_name                  regclass    NOT NULL,   -- validated: must exist
+        age_column                  name        NOT NULL,   -- the timestamp column
+        max_age_seconds             bigint      NOT NULL CHECK (max_age_seconds > 0),
+        is_soft_delete_enabled      boolean     NOT NULL DEFAULT false,
 
-        UNIQUE (table_name, column_name)
+        is_enabled          boolean     NOT NULL DEFAULT true,
+        inserted_at         timestamptz NOT NULL DEFAULT now(),
+
+        UNIQUE (table_name, age_column)
     );
     "#,
     name = "pg_perishable_policies_table",
 );
 
+const PG_ID_MAX_LEN: usize = 63;
+
+fn ensure_age_index(client: &mut spi::SpiClient, table_name: &str, age_column: &str) -> Result<(), spi::Error> {
+    let index_name = format!(
+        "pg_perishable_age_idx_{}_{}",
+        table_name.replace('.', "_"),
+        age_column
+    );
+
+    //for unicode, to avoid truncation of a character in the middle
+    let index_name = if index_name.len() > PG_ID_MAX_LEN {
+        let mut truncated = index_name.clone();
+        while truncated.len() > PG_ID_MAX_LEN {
+            truncated.pop();
+        }
+        truncated
+    } else {
+        index_name
+    };
+
+    let query_text = client
+        .select(
+            "SELECT format(
+                'CREATE INDEX IF NOT EXISTS %I ON %s (%I)',
+                $1, $2::regclass, $3
+             )",
+            None,
+            &[
+                index_name.as_str().into(),
+                table_name.into(),
+                age_column.into(),
+            ],
+        )?
+        .first()
+        .get_one::<String>()?
+        .expect("format() should not return NULL");
+
+    client.update(&query_text, None, &[])?;
+    Ok(())
+}
+
 #[pg_extern]
 fn pg_perishable_create_policy(
     table_name: &str,
-    column_name: &str,
-    ttl_seconds: i64,
-    soft_delete: default!(bool, false),
+    age_column: &str,
+    max_age_seconds: i64,
+    is_soft_delete_enabled: default!(bool, false),
 ) -> Result<i64, spi::Error> {
     Spi::connect_mut(|client| {
         // a row for per policy
         // casting table_name::regclass ==> validation has been shifted to Postgres itself
         let row = client.update(
-            "INSERT INTO pg_perishable.policies (table_name, column_name, ttl_seconds, soft_delete)
+            "INSERT INTO pg_perishable.policies (table_name, age_column, max_age_seconds, is_soft_delete_enabled)
              VALUES ($1::regclass, $2, $3, $4)
              RETURNING id",
             None,
             &[
                 table_name.into(),
-                column_name.into(),
-                ttl_seconds.into(),
-                soft_delete.into(),
+                age_column.into(),
+                max_age_seconds.into(),
+                is_soft_delete_enabled.into(),
             ],
         )?;
 
