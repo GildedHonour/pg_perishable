@@ -426,7 +426,7 @@ fn run_sweep() {
     for policy in &policies {
         let result = match policy.mode.as_str() {
             "delete_row" => sweep_delete(policy),
-            "redact_column" => sweep_redact(policy), // <-- calls sweep_redact()
+            "redact_column" => sweep_redact(policy),
             other => {
                 warning!("{NAME}: unknown mode '{other}', skipping");
                 continue;
@@ -441,6 +441,35 @@ fn run_sweep() {
             );
         }
     }
+}
+
+//todo: draft
+fn log_sweep(
+    client: &mut spi::SpiClient,
+    policy: &Policy,
+    rows_affected: i64,
+) -> Result<(), spi::Error> {
+    if rows_affected == 0 {
+        return Ok(());
+    }
+
+    client.update(
+        &format!(
+            "INSERT INTO {NAME}.sweep_log
+            (policy_id, table_name, age_column, mode, target_column, rows_affected)
+         VALUES ($1, $2, $3, $4, $5, $6)"
+        ),
+        None,
+        &[
+            policy.id.into(),
+            policy.table_name.as_str().into(),
+            policy.age_column.as_str().into(),
+            policy.mode.as_str().into(),
+            policy.target_column.as_deref().into(),
+            rows_affected.into(),
+        ],
+    )?;
+    Ok(())
 }
 
 #[cfg(any(test, feature = "pg_test"))]
