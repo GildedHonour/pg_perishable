@@ -11,17 +11,21 @@ One time set up is required; no manual `start_worker()` call is.
 
 
 ## Installation
-- identify the location of the object code libraries
-```
-pg_config --sharedir
-```
-- copy the library, ***.so**, there
-- specify it in the config
 
+download a release:
 ```
-shared_preload_libraries = 'pg_perishable'
+curl -LO {...}/releases/download/{ver}/{rels_name}.tar.gz
 ```
 
+unpack it:
+```
+tar -xzf {rels_name}.tar.gz
+cd {rels_name}
+```
 
-- restart Postgres; one-time
-- `CREATE EXTENSION pg_perishable;`
+install it:
+```
+sudo make install
+```
+
+Finish by following the post-installation instructions that'll be printed.
