@@ -11,8 +11,12 @@ One time set up is required; no manual `start_worker()` call is.
 
 
 ## Installation
-
-- add the library, ***.so**, into the config of Postgres
+- identify the location of the object code libraries
+```
+pg_config --sharedir
+```
+- copy the library, ***.so**, there
+- specify it in the config
 
 ```
 shared_preload_libraries = 'pg_perishable'
